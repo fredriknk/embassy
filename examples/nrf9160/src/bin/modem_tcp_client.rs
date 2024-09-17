@@ -10,6 +10,7 @@ use core::str::FromStr;
 use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_net::dns::DnsQueryType::A;
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{context, Runner, State, TraceBuffer, TraceReader};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
@@ -97,9 +98,9 @@ async fn blink_task(pin: AnyPin) {
     let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
     loop {
         led.set_high();
-        Timer::after_millis(1000).await;
+        Timer::after_millis(100).await;
         led.set_low();
-        Timer::after_millis(1000).await;
+        Timer::after_millis(1900).await;
     }
 }
 
@@ -112,7 +113,7 @@ extern "C" {
 async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
-    info!("Hello World!");
+    info!("Starting!");
 
     unwrap!(spawner.spawn(blink_task(p.P0_02.degrade())));
 
@@ -180,9 +181,11 @@ async fn main(spawner: Spawner) {
     loop {
         let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         socket.set_timeout(Some(Duration::from_secs(10)));
-
         info!("Connecting...");
-        let host_addr = embassy_net::Ipv4Address::from_str("45.79.112.203").unwrap();
+        let ip_addr = stack.dns_query("tcpbin.com",embassy_net::dns::DnsQueryType::A).await;
+        let host_addr = ip_addr.clone().unwrap()[0];
+        //let host_addr = embassy_net::Ipv4Address::from(ip_addr[0]);
+        info!("Ip address from  {:?}",  ip_addr.unwrap()[0]);
         if let Err(e) = socket.connect((host_addr, 4242)).await {
             warn!("connect error: {:?}", e);
             Timer::after_secs(10).await;
@@ -192,13 +195,16 @@ async fn main(spawner: Spawner) {
 
         let msg = b"Hello world!\n";
         for _ in 0..10 {
+            info!("Trying to send data");
             if let Err(e) = socket.write_all(msg).await {
                 warn!("write error: {:?}", e);
                 break;
             }
             info!("txd: {}", core::str::from_utf8(msg).unwrap());
-            Timer::after_secs(1).await;
+            Timer::after_secs(4).await;
         }
-        Timer::after_secs(4).await;
+
+        info!("Sleeping for 4sec");
+        Timer::after_secs(10).await;
     }
 }
